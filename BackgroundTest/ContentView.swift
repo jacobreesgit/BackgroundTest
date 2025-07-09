@@ -3,6 +3,10 @@ import MediaPlayer
 import CoreData
 import BackgroundTasks
 
+extension Notification.Name {
+    static let playCountUpdated = Notification.Name("playCountUpdated")
+}
+
 struct ContentView: View {
     @State private var authorizationStatus: MPMediaLibraryAuthorizationStatus = .notDetermined
     @State private var isObserverSetup = false
@@ -132,16 +136,76 @@ struct ContentView: View {
         let musicPlayer = MPMusicPlayerController.systemMusicPlayer
         musicPlayer.beginGeneratingPlaybackNotifications()
         
+        // Check initial state
+        print("🔍 [MUSIC_PLAYER] Initial music player state:")
+        print("   - Playback state: \(playbackStateString(musicPlayer.playbackState))")
+        if let nowPlayingItem = musicPlayer.nowPlayingItem {
+            let title = nowPlayingItem.title ?? "Unknown Title"
+            let artist = nowPlayingItem.artist ?? "Unknown Artist"
+            print("   - Now playing: \"\(title)\" by \(artist)")
+        } else {
+            print("   - No song currently playing")
+        }
+        
+        // Add multiple notification observers for debugging
         NotificationCenter.default.addObserver(
             forName: .MPMusicPlayerControllerNowPlayingItemDidChange,
             object: musicPlayer,
             queue: .main
-        ) { _ in
+        ) { notification in
+            print("📢 [NOTIFICATION] MPMusicPlayerControllerNowPlayingItemDidChange received")
+            print("   - Notification object: \(notification.object ?? "nil")")
             self.handleNowPlayingItemChange()
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: .MPMusicPlayerControllerPlaybackStateDidChange,
+            object: musicPlayer,
+            queue: .main
+        ) { notification in
+            print("📢 [NOTIFICATION] MPMusicPlayerControllerPlaybackStateDidChange received")
+            print("   - New playback state: \(self.playbackStateString(musicPlayer.playbackState))")
+        }
+        
+        // Also try to manually trigger a check every 10 seconds for debugging
+        Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { _ in
+            self.debugMusicPlayerState()
         }
         
         isObserverSetup = true
         print("✅ [MUSIC_PLAYER] Music player observer setup completed")
+    }
+    
+    private func debugMusicPlayerState() {
+        let musicPlayer = MPMusicPlayerController.systemMusicPlayer
+        print("🔍 [DEBUG] Music player state check:")
+        print("   - Playback state: \(playbackStateString(musicPlayer.playbackState))")
+        if let nowPlayingItem = musicPlayer.nowPlayingItem {
+            let title = nowPlayingItem.title ?? "Unknown Title"
+            let artist = nowPlayingItem.artist ?? "Unknown Artist"
+            print("   - Now playing: \"\(title)\" by \(artist)")
+        } else {
+            print("   - No song currently playing")
+        }
+    }
+    
+    private func playbackStateString(_ state: MPMusicPlaybackState) -> String {
+        switch state {
+        case .stopped:
+            return "Stopped"
+        case .playing:
+            return "Playing ▶️"
+        case .paused:
+            return "Paused ⏸️"
+        case .interrupted:
+            return "Interrupted ⚠️"
+        case .seekingForward:
+            return "Seeking Forward ⏩"
+        case .seekingBackward:
+            return "Seeking Backward ⏪"
+        @unknown default:
+            return "Unknown State"
+        }
     }
     
     private func handleNowPlayingItemChange() {
@@ -242,6 +306,9 @@ struct ContentView: View {
             // Save the context
             try context.save()
             print("✅ [CORE_DATA] Successfully saved play count for \"\(title)\" by \(artist)")
+            
+            // Notify that Core Data has been updated
+            NotificationCenter.default.post(name: .playCountUpdated, object: nil)
             
         } catch {
             print("❌ [CORE_DATA] Failed to save play count for \"\(title)\" by \(artist)")
@@ -489,6 +556,9 @@ struct TodayStatsView: View {
         .onAppear {
             loadTodaysSongs()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .playCountUpdated)) { _ in
+            loadTodaysSongs()
+        }
     }
     
     private func loadTodaysSongs() {
@@ -542,6 +612,9 @@ struct ThisWeekStatsView: View {
             loadWeekSongs()
         }
         .onAppear {
+            loadWeekSongs()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .playCountUpdated)) { _ in
             loadWeekSongs()
         }
     }
@@ -622,6 +695,9 @@ struct AllTimeStatsView: View {
             loadAllTimeStats()
         }
         .onAppear {
+            loadAllTimeStats()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .playCountUpdated)) { _ in
             loadAllTimeStats()
         }
     }
