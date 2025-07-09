@@ -1,164 +1,138 @@
-//
-//  ContentView.swift
-//  BackgroundTest
-//
-//  Created by Jacob Rees on 28/06/2025.
-//
-
 import SwiftUI
-import BackgroundTasks
+import MediaPlayer
 
 struct ContentView: View {
-    @State private var testResult = "Testing background monitoring..."
-    @State private var resultColor: Color = .secondary
-    @State private var resultIcon = "clock.arrow.circlepath"
+    @State private var authorizationStatus: MPMediaLibraryAuthorizationStatus = .notDetermined
     
     var body: some View {
         VStack(spacing: 30) {
-            Image(systemName: resultIcon)
+            Image(systemName: "music.note")
                 .imageScale(.large)
-                .foregroundStyle(resultColor)
+                .foregroundStyle(.tint)
                 .font(.system(size: 50))
             
-            Text("Background Monitoring Test")
+            Text("Music Library Access")
                 .font(.title2)
                 .fontWeight(.semibold)
             
-            Text(testResult)
+            Text("Current Status: \(statusDescription)")
                 .font(.body)
-                .foregroundColor(resultColor)
+                .foregroundColor(statusColor)
                 .multilineTextAlignment(.center)
                 .padding()
             
-            Button("Retest") {
-                retestBackgroundMonitoring()
+            Button("Grant Music Access") {
+                requestMusicLibraryAccess()
             }
             .buttonStyle(.borderedProminent)
             .font(.headline)
+            
+            if authorizationStatus == .authorized {
+                Button("Test Library Access") {
+                    testMusicLibraryAccess()
+                }
+                .buttonStyle(.bordered)
+                .font(.headline)
+            }
         }
         .padding()
         .onAppear {
-            testBackgroundMonitoring()
+            checkCurrentAuthorizationStatus()
         }
     }
     
-    private func retestBackgroundMonitoring() {
-        print("🔄 [RETEST] User requested retest of background monitoring")
-        testResult = "Testing background monitoring..."
-        resultColor = .secondary
-        resultIcon = "clock.arrow.circlepath"
-        testBackgroundMonitoring()
+    private var statusDescription: String {
+        switch authorizationStatus {
+        case .authorized:
+            return "Authorized ✅"
+        case .denied:
+            return "Denied ❌"
+        case .restricted:
+            return "Restricted ⚠️"
+        case .notDetermined:
+            return "Not Determined ❓"
+        @unknown default:
+            return "Unknown Status"
+        }
     }
     
-    private func testBackgroundMonitoring() {
-        print("🚀 [INIT] Starting background monitoring test...")
-        print("📱 [INFO] Device: \(UIDevice.current.model)")
-        print("📋 [INFO] iOS Version: \(UIDevice.current.systemVersion)")
-        print("🏗️ [INFO] Build Configuration: DEBUG")
-        
-        let identifier = "com.backgroundtest.monitor"
-        print("🆔 [INFO] Task identifier: \(identifier)")
-        
-        let request = BGProcessingTaskRequest(identifier: identifier)
-        request.requiresNetworkConnectivity = false
-        request.requiresExternalPower = false
-        
-        print("⚙️ [CONFIG] Background task request created:")
-        print("   - Network connectivity required: \(request.requiresNetworkConnectivity)")
-        print("   - External power required: \(request.requiresExternalPower)")
-        
-        do {
-            print("📤 [ATTEMPT] Submitting background task request...")
-            try BGTaskScheduler.shared.submit(request)
-            print("✅ [SUCCESS] Background task submitted successfully!")
-            showSuccessResult()
-        } catch BGTaskScheduler.Error.unavailable {
-            print("❌ [ERROR] BGTaskScheduler.Error.unavailable")
-            print("   - Background task scheduling is unavailable")
-            print("   - This usually happens in simulator or when background refresh is disabled")
-            showUnavailableResult()
-        } catch BGTaskScheduler.Error.tooManyPendingTaskRequests {
-            print("❌ [ERROR] BGTaskScheduler.Error.tooManyPendingTaskRequests")
-            print("   - Too many pending background task requests")
-            print("   - Clear pending tasks or wait for them to execute")
-            showTooManyRequestsResult()
-        } catch BGTaskScheduler.Error.notPermitted {
-            print("❌ [ERROR] BGTaskScheduler.Error.notPermitted")
-            print("   - Background task scheduling is not permitted")
-            print("   - Check if identifier is registered in Info.plist")
-            showNotPermittedResult()
-        } catch {
-            print("❌ [ERROR] Unknown error occurred:")
-            print("   - Error type: \(type(of: error))")
-            print("   - Error description: \(error.localizedDescription)")
-            print("   - Error code: \((error as NSError).code)")
-            print("   - Error domain: \((error as NSError).domain)")
-            
-            if error.localizedDescription.contains("backgroundTaskFailed") {
-                print("🔍 [DETECTED] backgroundTaskFailed error detected")
-                showBackgroundTaskFailedResult()
-            } else {
-                print("🔍 [FALLBACK] Generic error handling")
-                showGenericErrorResult(error: error)
-            }
+    private var statusColor: Color {
+        switch authorizationStatus {
+        case .authorized:
+            return .green
+        case .denied:
+            return .red
+        case .restricted:
+            return .orange
+        case .notDetermined:
+            return .secondary
+        @unknown default:
+            return .secondary
         }
+    }
+    
+    private func checkCurrentAuthorizationStatus() {
+        authorizationStatus = MPMediaLibrary.authorizationStatus()
+        print("📱 [MUSIC_ACCESS] Current authorization status: \(logStatusDescription(authorizationStatus))")
+    }
+    
+    private func requestMusicLibraryAccess() {
+        print("🎵 [MUSIC_ACCESS] Requesting music library access...")
         
-        print("📊 [STATUS] Background monitoring test completed")
-        print("🔍 [DEBUG] Current BGTaskScheduler state inspection:")
-        
-        BGTaskScheduler.shared.getPendingTaskRequests { requests in
+        MPMediaLibrary.requestAuthorization { status in
             DispatchQueue.main.async {
-                print("📋 [PENDING] Found \(requests.count) pending background task requests:")
-                for (index, request) in requests.enumerated() {
-                    print("   \(index + 1). \(request.identifier)")
-                }
-                if requests.isEmpty {
-                    print("   (No pending requests)")
-                }
+                self.authorizationStatus = status
+                print("🎵 [MUSIC_ACCESS] Authorization result: \(self.logStatusDescription(status))")
             }
         }
     }
     
-    private func showSuccessResult() {
-        testResult = "✅ Background monitoring started successfully"
-        resultColor = .green
-        resultIcon = "checkmark.circle.fill"
-        print("🎉 [UI] Displaying success result")
+    private func logStatusDescription(_ status: MPMediaLibraryAuthorizationStatus) -> String {
+        switch status {
+        case .authorized:
+            return "Authorized - Full access to music library granted"
+        case .denied:
+            return "Denied - User denied access to music library"
+        case .restricted:
+            return "Restricted - Access restricted by system policies"
+        case .notDetermined:
+            return "Not Determined - User hasn't been asked for permission yet"
+        @unknown default:
+            return "Unknown - Unrecognized authorization status"
+        }
     }
     
-    private func showBackgroundTaskFailedResult() {
-        testResult = "❌ Background monitoring not supported on this device"
-        resultColor = .red
-        resultIcon = "xmark.circle.fill"
-        print("🚫 [UI] Displaying backgroundTaskFailed result")
-    }
-    
-    private func showUnavailableResult() {
-        testResult = "⚠️ Background task scheduling is unavailable\n(Common in simulator)"
-        resultColor = .orange
-        resultIcon = "exclamationmark.triangle.fill"
-        print("⚠️ [UI] Displaying unavailable result")
-    }
-    
-    private func showTooManyRequestsResult() {
-        testResult = "⚠️ Too many pending background task requests"
-        resultColor = .orange
-        resultIcon = "exclamationmark.triangle.fill"
-        print("⚠️ [UI] Displaying too many requests result")
-    }
-    
-    private func showNotPermittedResult() {
-        testResult = "❌ Background task scheduling is not permitted\n(Check Info.plist configuration)"
-        resultColor = .red
-        resultIcon = "xmark.circle.fill"
-        print("🚫 [UI] Displaying not permitted result")
-    }
-    
-    private func showGenericErrorResult(error: Error) {
-        testResult = "❌ Error: \(error.localizedDescription)"
-        resultColor = .red
-        resultIcon = "xmark.circle.fill"
-        print("🚫 [UI] Displaying generic error result")
+    private func testMusicLibraryAccess() {
+        guard authorizationStatus == .authorized else {
+            print("❌ [MUSIC_LIBRARY] Cannot access music library - insufficient permissions")
+            return
+        }
+        
+        print("🎵 [MUSIC_LIBRARY] Testing music library access...")
+        
+        let songsQuery = MPMediaQuery.songs()
+        guard let songs = songsQuery.items else {
+            print("❌ [MUSIC_LIBRARY] Failed to fetch songs from library")
+            return
+        }
+        
+        print("📊 [MUSIC_LIBRARY] Total songs in library: \(songs.count)")
+        
+        if songs.isEmpty {
+            print("📭 [MUSIC_LIBRARY] No songs found in music library")
+            return
+        }
+        
+        let firstFiveSongs = Array(songs.prefix(5))
+        print("🎶 [MUSIC_LIBRARY] First \(firstFiveSongs.count) songs:")
+        
+        for (index, song) in firstFiveSongs.enumerated() {
+            let title = song.title ?? "Unknown Title"
+            let artist = song.artist ?? "Unknown Artist"
+            print("   \(index + 1). \"\(title)\" by \(artist)")
+        }
+        
+        print("✅ [MUSIC_LIBRARY] Music library access test completed successfully")
     }
 }
 
