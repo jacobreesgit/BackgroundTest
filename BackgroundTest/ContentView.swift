@@ -1,11 +1,13 @@
 import SwiftUI
 import MediaPlayer
+import CoreData
 
 struct ContentView: View {
     @State private var authorizationStatus: MPMediaLibraryAuthorizationStatus = .notDetermined
     @State private var isObserverSetup = false
     @State private var playCountTimer: Timer?
     @State private var currentTrackingItem: MPMediaItem?
+    @Environment(\.managedObjectContext) private var viewContext
     
     var body: some View {
         VStack(spacing: 30) {
@@ -33,6 +35,12 @@ struct ContentView: View {
             if authorizationStatus == .authorized {
                 Button("Test Library Access") {
                     testMusicLibraryAccess()
+                }
+                .buttonStyle(.bordered)
+                .font(.headline)
+                
+                Button("Show Stats") {
+                    showPlayCountStatistics()
                 }
                 .buttonStyle(.bordered)
                 .font(.headline)
@@ -215,15 +223,209 @@ struct ContentView: View {
     private func recordPlayCount(for item: MPMediaItem) {
         let title = item.title ?? "Unknown Title"
         let artist = item.artist ?? "Unknown Artist"
+        let songId = item.persistentID
         
         print("✅ [PLAY_COUNT] Song played for 30+ seconds - counting as play: \"\(title)\" by \(artist)")
         
-        // Here you would typically save to Core Data or increment a counter
-        // For now, we'll just log the successful play count
+        // Save to Core Data
+        savePlayCountToCoreData(songId: songId, title: title, artist: artist)
         
         // Clear the timer and tracking item
         playCountTimer = nil
         currentTrackingItem = nil
+    }
+    
+    private func savePlayCountToCoreData(songId: UInt64, title: String, artist: String) {
+        let context = viewContext
+        
+        do {
+            // Check if a record already exists for this song
+            let fetchRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+            fetchRequest.predicate = NSPredicate(format: "songId == %@", String(songId))
+            fetchRequest.fetchLimit = 1
+            
+            let existingRecords = try context.fetch(fetchRequest)
+            
+            let playCountRecord: PlayCount
+            let currentDate = Date()
+            
+            if let existingRecord = existingRecords.first {
+                // Update existing record
+                playCountRecord = existingRecord
+                playCountRecord.playCount += 1
+                playCountRecord.lastPlayed = currentDate
+                
+                print("📊 [CORE_DATA] Updated existing record for \"\(title)\" - Play count: \(playCountRecord.playCount)")
+            } else {
+                // Create new record
+                playCountRecord = PlayCount(context: context)
+                playCountRecord.songId = String(songId)
+                playCountRecord.songTitle = title
+                playCountRecord.artistName = artist
+                playCountRecord.playCount = 1
+                playCountRecord.lastPlayed = currentDate
+                playCountRecord.firstTracked = currentDate
+                
+                print("📊 [CORE_DATA] Created new record for \"\(title)\" - First play tracked")
+            }
+            
+            // Save the context
+            try context.save()
+            print("✅ [CORE_DATA] Successfully saved play count for \"\(title)\" by \(artist)")
+            
+        } catch {
+            print("❌ [CORE_DATA] Failed to save play count for \"\(title)\" by \(artist)")
+            print("   - Error: \(error.localizedDescription)")
+            
+            if let nsError = error as NSError? {
+                print("   - Error code: \(nsError.code)")
+                print("   - Error domain: \(nsError.domain)")
+                print("   - User info: \(nsError.userInfo)")
+            }
+        }
+    }
+    
+    // MARK: - Play Count Statistics Functions
+    
+    private func showPlayCountStatistics() {
+        print("📊 [STATISTICS] Generating play count statistics...")
+        
+        // 1. Total play counts for all songs
+        let totalPlays = getTotalPlayCounts()
+        
+        // 2. Most played songs (top 10)
+        let mostPlayedSongs = getMostPlayedSongs(limit: 10)
+        
+        // 3. Songs played today
+        let songsPlayedToday = getSongsPlayedToday()
+        
+        // 4. Play counts for last 7 days
+        let lastWeekStart = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+        let lastWeekPlays = getPlayCountsForDateRange(startDate: lastWeekStart, endDate: Date())
+        
+        // Display statistics
+        displayStatistics(
+            totalPlays: totalPlays,
+            mostPlayedSongs: mostPlayedSongs,
+            songsPlayedToday: songsPlayedToday,
+            lastWeekPlays: lastWeekPlays
+        )
+    }
+    
+    private func getTotalPlayCounts() -> (totalSongs: Int, totalPlays: Int) {
+        let context = viewContext
+        
+        do {
+            let fetchRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+            let records = try context.fetch(fetchRequest)
+            
+            let totalSongs = records.count
+            let totalPlays = records.reduce(0) { $0 + Int($1.playCount) }
+            
+            return (totalSongs: totalSongs, totalPlays: totalPlays)
+        } catch {
+            print("❌ [STATISTICS] Failed to fetch total play counts: \(error.localizedDescription)")
+            return (totalSongs: 0, totalPlays: 0)
+        }
+    }
+    
+    private func getMostPlayedSongs(limit: Int) -> [PlayCount] {
+        let context = viewContext
+        
+        do {
+            let fetchRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+            fetchRequest.sortDescriptors = [NSSortDescriptor(key: "playCount", ascending: false)]
+            fetchRequest.fetchLimit = limit
+            
+            return try context.fetch(fetchRequest)
+        } catch {
+            print("❌ [STATISTICS] Failed to fetch most played songs: \(error.localizedDescription)")
+            return []
+        }
+    }
+    
+    private func getPlayCountsForDateRange(startDate: Date, endDate: Date) -> [PlayCount] {
+        let context = viewContext
+        
+        do {
+            let fetchRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+            fetchRequest.predicate = NSPredicate(
+                format: "lastPlayed >= %@ AND lastPlayed <= %@",
+                startDate as NSDate,
+                endDate as NSDate
+            )
+            fetchRequest.sortDescriptors = [NSSortDescriptor(key: "lastPlayed", ascending: false)]
+            
+            return try context.fetch(fetchRequest)
+        } catch {
+            print("❌ [STATISTICS] Failed to fetch play counts for date range: \(error.localizedDescription)")
+            return []
+        }
+    }
+    
+    private func getSongsPlayedToday() -> [PlayCount] {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: Date())
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? Date()
+        
+        return getPlayCountsForDateRange(startDate: startOfDay, endDate: endOfDay)
+    }
+    
+    private func displayStatistics(totalPlays: (totalSongs: Int, totalPlays: Int), mostPlayedSongs: [PlayCount], songsPlayedToday: [PlayCount], lastWeekPlays: [PlayCount]) {
+        print("\n" + String(repeating: "=", count: 60))
+        print("📊 MUSIC TRACKING STATISTICS")
+        print(String(repeating: "=", count: 60))
+        
+        // Total statistics
+        print("\n📈 OVERALL STATISTICS:")
+        print("   • Total unique songs tracked: \(totalPlays.totalSongs)")
+        print("   • Total plays recorded: \(totalPlays.totalPlays)")
+        
+        // Most played songs
+        print("\n🏆 TOP \(mostPlayedSongs.count) MOST PLAYED SONGS:")
+        if mostPlayedSongs.isEmpty {
+            print("   • No songs tracked yet")
+        } else {
+            for (index, song) in mostPlayedSongs.enumerated() {
+                let title = song.songTitle ?? "Unknown Title"
+                let artist = song.artistName ?? "Unknown Artist"
+                print("   \(index + 1). \"\(title)\" by \(artist) - \(song.playCount) plays")
+            }
+        }
+        
+        // Songs played today
+        print("\n📅 SONGS PLAYED TODAY:")
+        if songsPlayedToday.isEmpty {
+            print("   • No songs played today")
+        } else {
+            print("   • Total songs played today: \(songsPlayedToday.count)")
+            for song in songsPlayedToday.prefix(5) {
+                let title = song.songTitle ?? "Unknown Title"
+                let artist = song.artistName ?? "Unknown Artist"
+                let formatter = DateFormatter()
+                formatter.timeStyle = .short
+                let timeString = formatter.string(from: song.lastPlayed ?? Date())
+                print("   • \"\(title)\" by \(artist) - Last played at \(timeString)")
+            }
+            if songsPlayedToday.count > 5 {
+                print("   • ... and \(songsPlayedToday.count - 5) more")
+            }
+        }
+        
+        // Last week statistics
+        print("\n📊 LAST 7 DAYS STATISTICS:")
+        if lastWeekPlays.isEmpty {
+            print("   • No songs played in the last 7 days")
+        } else {
+            let totalWeekPlays = lastWeekPlays.reduce(0) { $0 + Int($1.playCount) }
+            print("   • Unique songs played: \(lastWeekPlays.count)")
+            print("   • Total plays: \(totalWeekPlays)")
+            print("   • Average plays per day: \(String(format: "%.1f", Double(totalWeekPlays) / 7.0))")
+        }
+        
+        print("\n" + String(repeating: "=", count: 60))
+        print("✅ Statistics generated successfully!")
+        print(String(repeating: "=", count: 60) + "\n")
     }
 }
 
