@@ -4,10 +4,9 @@
 <dict>
 	<key>UIBackgroundModes</key>
 	<array>
-		<string>fetch</string>
+		<string>background-app-refresh</string>
 		<string>processing</string>
 		<string>audio</string>
-		<string>remote-notification</string>
 	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
