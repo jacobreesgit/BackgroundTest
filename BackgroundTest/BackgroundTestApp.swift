@@ -8,6 +8,7 @@
 import SwiftUI
 import BackgroundTasks
 import UIKit
+import CoreData
 
 @main
 struct BackgroundTestApp: App {

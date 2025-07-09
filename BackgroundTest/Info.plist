@@ -13,5 +13,9 @@
 	<array>
 		<string>com.backgroundtest.monitor</string>
 	</array>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>This app tracks your music listening habits to show personalized statistics and insights.</string>
+	<key>CFBundleIdentifier</key>
+	<string></string>
 </dict>
 </plist>
