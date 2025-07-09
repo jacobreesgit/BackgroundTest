@@ -3,6 +3,9 @@ import MediaPlayer
 
 struct ContentView: View {
     @State private var authorizationStatus: MPMediaLibraryAuthorizationStatus = .notDetermined
+    @State private var isObserverSetup = false
+    @State private var playCountTimer: Timer?
+    @State private var currentTrackingItem: MPMediaItem?
     
     var body: some View {
         VStack(spacing: 30) {
@@ -74,6 +77,10 @@ struct ContentView: View {
     private func checkCurrentAuthorizationStatus() {
         authorizationStatus = MPMediaLibrary.authorizationStatus()
         print("📱 [MUSIC_ACCESS] Current authorization status: \(logStatusDescription(authorizationStatus))")
+        
+        if authorizationStatus == .authorized && !isObserverSetup {
+            setupMusicPlayerObserver()
+        }
     }
     
     private func requestMusicLibraryAccess() {
@@ -83,6 +90,10 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 self.authorizationStatus = status
                 print("🎵 [MUSIC_ACCESS] Authorization result: \(self.logStatusDescription(status))")
+                
+                if status == .authorized && !self.isObserverSetup {
+                    self.setupMusicPlayerObserver()
+                }
             }
         }
     }
@@ -133,6 +144,86 @@ struct ContentView: View {
         }
         
         print("✅ [MUSIC_LIBRARY] Music library access test completed successfully")
+    }
+    
+    private func setupMusicPlayerObserver() {
+        guard !isObserverSetup else {
+            print("⚠️ [MUSIC_PLAYER] Observer already setup, skipping")
+            return
+        }
+        
+        print("🎧 [MUSIC_PLAYER] Setting up music player observer...")
+        
+        let musicPlayer = MPMusicPlayerController.systemMusicPlayer
+        musicPlayer.beginGeneratingPlaybackNotifications()
+        
+        NotificationCenter.default.addObserver(
+            forName: .MPMusicPlayerControllerNowPlayingItemDidChange,
+            object: musicPlayer,
+            queue: .main
+        ) { _ in
+            self.handleNowPlayingItemChange()
+        }
+        
+        isObserverSetup = true
+        print("✅ [MUSIC_PLAYER] Music player observer setup completed")
+    }
+    
+    private func handleNowPlayingItemChange() {
+        let musicPlayer = MPMusicPlayerController.systemMusicPlayer
+        
+        // Cancel existing timer if there was a previous song being tracked
+        if let timer = playCountTimer {
+            timer.invalidate()
+            
+            if let previousItem = currentTrackingItem {
+                let previousTitle = previousItem.title ?? "Unknown Title"
+                let previousArtist = previousItem.artist ?? "Unknown Artist"
+                print("⏭️ [PLAY_COUNT] Song skipped before 30 seconds: \"\(previousTitle)\" by \(previousArtist)")
+            }
+        }
+        
+        guard let nowPlayingItem = musicPlayer.nowPlayingItem else {
+            print("🎵 [NOW_PLAYING] No song currently playing")
+            currentTrackingItem = nil
+            playCountTimer = nil
+            return
+        }
+        
+        let title = nowPlayingItem.title ?? "Unknown Title"
+        let artist = nowPlayingItem.artist ?? "Unknown Artist"
+        
+        print("🎵 [NOW_PLAYING] Song changed: \"\(title)\" by \(artist)")
+        
+        // Start tracking this new song
+        startPlayCountTimer(for: nowPlayingItem)
+    }
+    
+    private func startPlayCountTimer(for item: MPMediaItem) {
+        currentTrackingItem = item
+        
+        let title = item.title ?? "Unknown Title"
+        let artist = item.artist ?? "Unknown Artist"
+        
+        print("⏱️ [PLAY_COUNT] Starting 30-second timer for: \"\(title)\" by \(artist)")
+        
+        playCountTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { _ in
+            self.recordPlayCount(for: item)
+        }
+    }
+    
+    private func recordPlayCount(for item: MPMediaItem) {
+        let title = item.title ?? "Unknown Title"
+        let artist = item.artist ?? "Unknown Artist"
+        
+        print("✅ [PLAY_COUNT] Song played for 30+ seconds - counting as play: \"\(title)\" by \(artist)")
+        
+        // Here you would typically save to Core Data or increment a counter
+        // For now, we'll just log the successful play count
+        
+        // Clear the timer and tracking item
+        playCountTimer = nil
+        currentTrackingItem = nil
     }
 }
 
