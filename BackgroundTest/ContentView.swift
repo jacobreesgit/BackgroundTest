@@ -1,55 +1,22 @@
 import SwiftUI
 import MediaPlayer
 import CoreData
+import BackgroundTasks
 
 struct ContentView: View {
     @State private var authorizationStatus: MPMediaLibraryAuthorizationStatus = .notDetermined
     @State private var isObserverSetup = false
     @State private var playCountTimer: Timer?
     @State private var currentTrackingItem: MPMediaItem?
+    @State private var showingStats = false
     @Environment(\.managedObjectContext) private var viewContext
     
     var body: some View {
-        VStack(spacing: 30) {
-            Image(systemName: "music.note")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-                .font(.system(size: 50))
-            
-            Text("Music Library Access")
-                .font(.title2)
-                .fontWeight(.semibold)
-            
-            Text("Current Status: \(statusDescription)")
-                .font(.body)
-                .foregroundColor(statusColor)
-                .multilineTextAlignment(.center)
-                .padding()
-            
-            Button("Grant Music Access") {
-                requestMusicLibraryAccess()
+        MusicStatsView()
+            .environment(\.managedObjectContext, viewContext)
+            .onAppear {
+                checkCurrentAuthorizationStatus()
             }
-            .buttonStyle(.borderedProminent)
-            .font(.headline)
-            
-            if authorizationStatus == .authorized {
-                Button("Test Library Access") {
-                    testMusicLibraryAccess()
-                }
-                .buttonStyle(.bordered)
-                .font(.headline)
-                
-                Button("Show Stats") {
-                    showPlayCountStatistics()
-                }
-                .buttonStyle(.bordered)
-                .font(.headline)
-            }
-        }
-        .padding()
-        .onAppear {
-            checkCurrentAuthorizationStatus()
-        }
     }
     
     private var statusDescription: String {
@@ -214,6 +181,9 @@ struct ContentView: View {
         let artist = item.artist ?? "Unknown Artist"
         
         print("⏱️ [PLAY_COUNT] Starting 30-second timer for: \"\(title)\" by \(artist)")
+        
+        // Schedule background task to continue tracking if app goes to background
+        scheduleBackgroundMusicTracking()
         
         playCountTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { _ in
             self.recordPlayCount(for: item)
@@ -426,6 +396,343 @@ struct ContentView: View {
         print("\n" + String(repeating: "=", count: 60))
         print("✅ Statistics generated successfully!")
         print(String(repeating: "=", count: 60) + "\n")
+    }
+    
+    private func scheduleBackgroundMusicTracking() {
+        let identifier = "com.backgroundtest.monitor"
+        print("📅 [SCHEDULE] Scheduling background music tracking task...")
+        
+        let request = BGProcessingTaskRequest(identifier: identifier)
+        request.requiresNetworkConnectivity = false
+        request.requiresExternalPower = false
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 15) // Start checking in 15 seconds
+        
+        do {
+            // Cancel any existing requests first
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
+            
+            try BGTaskScheduler.shared.submit(request)
+            print("✅ [SCHEDULE] Background music tracking task scheduled successfully")
+            print("   - Earliest begin date: \(request.earliestBeginDate?.description ?? "Unknown")")
+        } catch {
+            print("❌ [SCHEDULE] Failed to schedule background music tracking task: \(error.localizedDescription)")
+        }
+    }
+}
+
+struct MusicStatsView: View {
+    @Environment(\.managedObjectContext) private var viewContext
+    
+    var body: some View {
+        TabView {
+            NavigationView {
+                TodayStatsView()
+                    .navigationTitle("Today")
+                    .navigationBarTitleDisplayMode(.large)
+            }
+            .environment(\.managedObjectContext, viewContext)
+            .tabItem {
+                Image(systemName: "calendar")
+                Text("Today")
+            }
+            
+            NavigationView {
+                ThisWeekStatsView()
+                    .navigationTitle("This Week")
+                    .navigationBarTitleDisplayMode(.large)
+            }
+            .environment(\.managedObjectContext, viewContext)
+            .tabItem {
+                Image(systemName: "calendar.circle")
+                Text("This Week")
+            }
+            
+            NavigationView {
+                AllTimeStatsView()
+                    .navigationTitle("All Time")
+                    .navigationBarTitleDisplayMode(.large)
+            }
+            .environment(\.managedObjectContext, viewContext)
+            .tabItem {
+                Image(systemName: "infinity")
+                Text("All Time")
+            }
+        }
+    }
+}
+
+struct TodayStatsView: View {
+    @Environment(\.managedObjectContext) private var viewContext
+    @State private var todaysSongs: [PlayCount] = []
+    
+    var body: some View {
+        List {
+            Section {
+                if todaysSongs.isEmpty {
+                    ContentUnavailableView(
+                        "No Songs Today",
+                        systemImage: "music.note.slash",
+                        description: Text("You haven't listened to any songs today yet.")
+                    )
+                } else {
+                    ForEach(Array(todaysSongs.enumerated()), id: \.element.objectID) { index, song in
+                        SongRowView(song: song, rank: index + 1)
+                    }
+                }
+            } header: {
+                Text("Top Songs Today")
+            }
+        }
+        .refreshable {
+            loadTodaysSongs()
+        }
+        .onAppear {
+            loadTodaysSongs()
+        }
+    }
+    
+    private func loadTodaysSongs() {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: Date())
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? Date()
+        
+        let context = viewContext
+        
+        do {
+            let fetchRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+            fetchRequest.predicate = NSPredicate(
+                format: "lastPlayed >= %@ AND lastPlayed <= %@",
+                startOfDay as NSDate,
+                endOfDay as NSDate
+            )
+            fetchRequest.sortDescriptors = [NSSortDescriptor(key: "playCount", ascending: false)]
+            fetchRequest.fetchLimit = 10
+            
+            todaysSongs = try context.fetch(fetchRequest)
+        } catch {
+            print("❌ [STATS] Failed to fetch today's songs: \(error.localizedDescription)")
+            todaysSongs = []
+        }
+    }
+}
+
+struct ThisWeekStatsView: View {
+    @Environment(\.managedObjectContext) private var viewContext
+    @State private var weekSongs: [PlayCount] = []
+    
+    var body: some View {
+        List {
+            Section {
+                if weekSongs.isEmpty {
+                    ContentUnavailableView(
+                        "No Songs This Week",
+                        systemImage: "music.note.slash",
+                        description: Text("You haven't listened to any songs this week yet.")
+                    )
+                } else {
+                    ForEach(Array(weekSongs.enumerated()), id: \.element.objectID) { index, song in
+                        SongRowView(song: song, rank: index + 1)
+                    }
+                }
+            } header: {
+                Text("Top Songs This Week")
+            }
+        }
+        .refreshable {
+            loadWeekSongs()
+        }
+        .onAppear {
+            loadWeekSongs()
+        }
+    }
+    
+    private func loadWeekSongs() {
+        let lastWeekStart = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+        let context = viewContext
+        
+        do {
+            let fetchRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+            fetchRequest.predicate = NSPredicate(
+                format: "lastPlayed >= %@ AND lastPlayed <= %@",
+                lastWeekStart as NSDate,
+                Date() as NSDate
+            )
+            fetchRequest.sortDescriptors = [NSSortDescriptor(key: "playCount", ascending: false)]
+            fetchRequest.fetchLimit = 10
+            
+            weekSongs = try context.fetch(fetchRequest)
+        } catch {
+            print("❌ [STATS] Failed to fetch week songs: \(error.localizedDescription)")
+            weekSongs = []
+        }
+    }
+}
+
+struct AllTimeStatsView: View {
+    @Environment(\.managedObjectContext) private var viewContext
+    @State private var allTimeSongs: [PlayCount] = []
+    @State private var totalStats: (songs: Int, plays: Int) = (0, 0)
+    
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text("Total Songs")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("\(totalStats.songs)")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                    }
+                    
+                    Spacer()
+                    
+                    VStack(alignment: .trailing) {
+                        Text("Total Plays")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("\(totalStats.plays)")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                    }
+                }
+                .padding(.vertical, 8)
+            } header: {
+                Text("Overall Statistics")
+            }
+            
+            Section {
+                if allTimeSongs.isEmpty {
+                    ContentUnavailableView(
+                        "No Songs Tracked",
+                        systemImage: "music.note.slash",
+                        description: Text("Start listening to music to see your stats here.")
+                    )
+                } else {
+                    ForEach(Array(allTimeSongs.enumerated()), id: \.element.objectID) { index, song in
+                        SongRowView(song: song, rank: index + 1)
+                    }
+                }
+            } header: {
+                Text("Most Played Songs")
+            }
+        }
+        .refreshable {
+            loadAllTimeStats()
+        }
+        .onAppear {
+            loadAllTimeStats()
+        }
+    }
+    
+    private func loadAllTimeStats() {
+        let context = viewContext
+        
+        do {
+            // Get top 10 most played songs
+            let songsRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+            songsRequest.sortDescriptors = [NSSortDescriptor(key: "playCount", ascending: false)]
+            songsRequest.fetchLimit = 10
+            
+            allTimeSongs = try context.fetch(songsRequest)
+            
+            // Get total statistics
+            let totalRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+            let allRecords = try context.fetch(totalRequest)
+            
+            totalStats = (
+                songs: allRecords.count,
+                plays: allRecords.reduce(0) { $0 + Int($1.playCount) }
+            )
+        } catch {
+            print("❌ [STATS] Failed to fetch all-time stats: \(error.localizedDescription)")
+            allTimeSongs = []
+            totalStats = (0, 0)
+        }
+    }
+}
+
+struct SongRowView: View {
+    let song: PlayCount
+    let rank: Int
+    
+    var body: some View {
+        HStack {
+            // Rank circle
+            ZStack {
+                Circle()
+                    .fill(rankColor)
+                    .frame(width: 32, height: 32)
+                
+                Text("\(rank)")
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(song.songTitle ?? "Unknown Title")
+                    .font(.headline)
+                    .lineLimit(1)
+                
+                Text(song.artistName ?? "Unknown Artist")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                
+                if let firstTracked = song.firstTracked {
+                    Text("First tracked: \(firstTracked, formatter: dateFormatter)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            Spacer()
+            
+            VStack(alignment: .trailing, spacing: 4) {
+                Text("\(song.playCount)")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.primary)
+                
+                Text(song.playCount == 1 ? "play" : "plays")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                if let lastPlayed = song.lastPlayed {
+                    Text(lastPlayed, formatter: timeFormatter)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+    
+    private var rankColor: Color {
+        switch rank {
+        case 1:
+            return .yellow
+        case 2:
+            return .gray
+        case 3:
+            return .orange
+        default:
+            return .blue
+        }
+    }
+    
+    private var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        return formatter
+    }
+    
+    private var timeFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter
     }
 }
 
