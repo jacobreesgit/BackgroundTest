@@ -104,6 +104,21 @@ class CoreDataManager {
         return fetchSongs(from: weekStart, to: Date(), limit: 10)
     }
     
+    func fetchRecentlyPlayedSongs(limit: Int = 50) -> [PlayCount] {
+        let request: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(key: "lastPlayed", ascending: false)]
+        request.fetchLimit = limit
+        
+        do {
+            return try viewContext.fetch(request)
+        } catch {
+            #if DEBUG
+            print("❌ [CORE_DATA] Failed to fetch recently played songs: \(error)")
+            #endif
+            return []
+        }
+    }
+    
     func fetchAllTimeSongs(limit: Int = 10) -> [PlayCount] {
         let request: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
         request.sortDescriptors = [NSSortDescriptor(key: "playCount", ascending: false)]

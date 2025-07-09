@@ -45,6 +45,16 @@ struct StatsTabView: View {
             }
             
             NavigationView {
+                RecentlyPlayedView()
+                    .navigationTitle("Recently Played")
+                    .navigationBarTitleDisplayMode(.large)
+            }
+            .tabItem {
+                Image(systemName: "clock.arrow.circlepath")
+                Text("Recent")
+            }
+            
+            NavigationView {
                 AllTimeStatsView()
                     .navigationTitle("All Time")
                     .navigationBarTitleDisplayMode(.large)
@@ -175,6 +185,65 @@ struct ThisWeekStatsView: View {
             
             DispatchQueue.main.async {
                 weekSongs = songs
+                isLoading = false
+            }
+        }.value
+    }
+}
+
+struct RecentlyPlayedView: View {
+    @State private var recentSongs: [PlayCount] = []
+    @State private var isLoading = true
+    
+    var body: some View {
+        List {
+            Section {
+                if isLoading {
+                    HStack {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Loading recently played songs...")
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 8)
+                } else if recentSongs.isEmpty {
+                    ContentUnavailableView(
+                        "No Recently Played Songs",
+                        systemImage: "clock.arrow.circlepath",
+                        description: Text("Your recently played songs will appear here.")
+                    )
+                } else {
+                    ForEach(Array(recentSongs.enumerated()), id: \.element.objectID) { index, song in
+                        SongRowView(song: song, rank: index + 1)
+                    }
+                }
+            } header: {
+                Text("Recently Played")
+            }
+        }
+        .refreshable {
+            await loadRecentSongs()
+        }
+        .onAppear {
+            Task {
+                await loadRecentSongs()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .playCountUpdated)) { _ in
+            Task {
+                await loadRecentSongs()
+            }
+        }
+    }
+    
+    private func loadRecentSongs() async {
+        isLoading = true
+        
+        await Task.detached {
+            let songs = CoreDataManager.shared.fetchRecentlyPlayedSongs()
+            
+            DispatchQueue.main.async {
+                recentSongs = songs
                 isLoading = false
             }
         }.value
@@ -358,6 +427,7 @@ struct SongRowView: View {
         return formatter
     }
 }
+
 
 #Preview {
     MusicStatsView()
