@@ -12,7 +12,6 @@ struct BackgroundTestApp: App {
         logBackgroundCapabilities()
         #endif
         
-        MusicTrackingManager.shared.registerBackgroundTask()
     }
     
     var body: some Scene {

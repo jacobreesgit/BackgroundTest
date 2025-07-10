@@ -119,7 +119,7 @@ class MusicKitManager: ObservableObject {
         
         do {
             var request = MusicRecentlyPlayedRequest<Song>()
-            request.limit = 100 // Fetch last 100 items
+            request.limit = 30 // Apple Music API limit is 30
             
             let response = try await request.response()
             let filteredItems = response.items.filter { item in
@@ -161,7 +161,7 @@ class MusicKitManager: ObservableObject {
         
         // Check if we've already processed this specific play
         if await shouldRecordPlay(songId: songId, playDate: item.lastPlayedDate) {
-            await recordMusicKitPlay(songId: songId, title: title, artist: artist, playDate: item.lastPlayedDate)
+            recordMusicKitPlay(songId: songId, title: title, artist: artist, playDate: item.lastPlayedDate)
         }
     }
     
@@ -172,18 +172,16 @@ class MusicKitManager: ObservableObject {
         return playDate >= appInstallDate
     }
     
-    private func recordMusicKitPlay(songId: String, title: String, artist: String, playDate: Date?) async {
-        await withCheckedContinuation { continuation in
-            CoreDataManager.shared.recordMusicKitPlay(
-                songId: songId,
-                title: title,
-                artist: artist,
-                playDate: playDate ?? Date()
-            ) {
-                continuation.resume()
-            }
-        }
+    private func recordMusicKitPlay(songId: String, title: String, artist: String, playDate: Date?) {
+        CoreDataManager.shared.recordPlayCount(
+            songId: songId,
+            title: title,
+            artist: artist,
+            source: "musickit",
+            playDate: playDate ?? Date()
+        )
     }
+    
     
     // MARK: - Public Methods
     

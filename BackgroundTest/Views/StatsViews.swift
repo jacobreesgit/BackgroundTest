@@ -79,6 +79,12 @@ struct StatsTabView: View {
                     Image(systemName: "gear")
                     Text("Settings")
                 }
+            
+            DebugView()
+                .tabItem {
+                    Image(systemName: "ant")
+                    Text("Debug")
+                }
         }
     }
 }
@@ -110,10 +116,6 @@ struct TodayStatsView: View {
                     }
                 }
             }
-        }
-        .refreshable {
-            await MusicKitManager.shared.syncRecentPlays()
-            await loadTodaysSongs()
         }
         .onAppear {
             Task {
@@ -168,10 +170,6 @@ struct ThisWeekStatsView: View {
                 }
             }
         }
-        .refreshable {
-            await MusicKitManager.shared.syncRecentPlays()
-            await loadWeekSongs()
-        }
         .onAppear {
             Task {
                 await MusicKitManager.shared.syncRecentPlays()
@@ -224,10 +222,6 @@ struct RecentlyPlayedView: View {
                     }
                 }
             }
-        }
-        .refreshable {
-            await MusicKitManager.shared.syncRecentPlays()
-            await loadRecentSongs()
         }
         .onAppear {
             Task {
@@ -328,10 +322,6 @@ struct AllTimeStatsView: View {
                     }
                 }
             }
-        }
-        .refreshable {
-            await MusicKitManager.shared.syncRecentPlays()
-            await loadAllTimeStats()
         }
         .onAppear {
             Task {

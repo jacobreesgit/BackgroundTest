@@ -35,46 +35,43 @@ class CoreDataManager {
         viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
     }
     
-    // MARK: - Play Count Management
+    // MARK: - Play Count Management with Smart Deduplication
     
-    func recordPlayCount(songId: String, title: String, artist: String) {
+    func recordPlayCount(
+        songId: String,
+        title: String,
+        artist: String,
+        source: String = "realtime",
+        playDate: Date = Date(),
+        sessionId: String? = nil
+    ) {
         persistentContainer.performBackgroundTask { context in
             do {
-                // Check if record already exists
-                let fetchRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
-                fetchRequest.predicate = NSPredicate(format: "songId == %@", songId)
-                fetchRequest.fetchLimit = 1
-                
-                let existingRecords = try context.fetch(fetchRequest)
-                let currentDate = Date()
-                
-                let playCountRecord: PlayCount
-                
-                if let existingRecord = existingRecords.first {
-                    // Update existing record
-                    playCountRecord = existingRecord
-                    playCountRecord.playCount += 1
-                    playCountRecord.lastPlayed = currentDate
-                    
+                // Check for duplicates using smart logic
+                if self.checkForDuplicate(songId: songId, source: source, playDate: playDate, sessionId: sessionId, context: context) {
                     #if DEBUG
-                    print("📊 [CORE_DATA] Updated play count for \"\(title)\" - Count: \(playCountRecord.playCount)")
+                    print("🚫 [DEDUP] Duplicate play detected for \"\(title)\" from \(source) - skipping")
                     #endif
-                } else {
-                    // Create new record
-                    playCountRecord = PlayCount(context: context)
-                    playCountRecord.songId = songId
-                    playCountRecord.songTitle = title
-                    playCountRecord.artistName = artist
-                    playCountRecord.playCount = 1
-                    playCountRecord.lastPlayed = currentDate
-                    playCountRecord.firstTracked = currentDate
-                    
-                    #if DEBUG
-                    print("📊 [CORE_DATA] Created new play count record for \"\(title)\"")
-                    #endif
+                    return
+                }
+                
+                // Get or create the play count record
+                let playCountRecord = self.getOrCreatePlayCount(songId: songId, title: title, artist: artist, context: context)
+                
+                // Update the record
+                playCountRecord.playCount += 1
+                playCountRecord.lastPlayed = playDate
+                playCountRecord.trackingSource = source
+                
+                if let sessionId = sessionId {
+                    playCountRecord.playSessionId = sessionId
                 }
                 
                 try context.save()
+                
+                #if DEBUG
+                print("✅ [CORE_DATA] Recorded play for \"\(title)\" from \(source) - Count: \(playCountRecord.playCount)")
+                #endif
                 
                 // Notify on main queue
                 DispatchQueue.main.async {
@@ -89,60 +86,115 @@ class CoreDataManager {
         }
     }
     
-    // MARK: - MusicKit Integration
+    // MARK: - Smart Deduplication Logic
     
-    func recordMusicKitPlay(songId: String, title: String, artist: String, playDate: Date, completion: @escaping () -> Void) {
-        persistentContainer.performBackgroundTask { context in
-            do {
-                // Check if record already exists
-                let fetchRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
-                fetchRequest.predicate = NSPredicate(format: "songId == %@", songId)
-                fetchRequest.fetchLimit = 1
-                
-                let existingRecords = try context.fetch(fetchRequest)
-                let playCountRecord: PlayCount
-                
-                if let existingRecord = existingRecords.first {
-                    // Update existing record
-                    playCountRecord = existingRecord
-                    playCountRecord.playCount += 1
-                    playCountRecord.lastPlayed = playDate
-                    
-                    #if DEBUG
-                    print("📊 [MUSIC_KIT] Updated play count for \"\(title)\" - Count: \(playCountRecord.playCount)")
-                    #endif
-                } else {
-                    // Create new record
-                    playCountRecord = PlayCount(context: context)
-                    playCountRecord.songId = songId
-                    playCountRecord.songTitle = title
-                    playCountRecord.artistName = artist
-                    playCountRecord.playCount = 1
-                    playCountRecord.lastPlayed = playDate
-                    playCountRecord.firstTracked = playDate
-                    
-                    #if DEBUG
-                    print("📊 [MUSIC_KIT] Created new play count record for \"\(title)\"")
-                    #endif
-                }
-                
-                try context.save()
-                
-                // Notify on main queue
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: .playCountUpdated, object: nil)
-                    completion()
-                }
-                
-            } catch {
-                #if DEBUG
-                print("❌ [MUSIC_KIT] Failed to record play count: \(error)")
-                #endif
-                DispatchQueue.main.async {
-                    completion()
-                }
+    private func checkForDuplicate(
+        songId: String,
+        source: String,
+        playDate: Date,
+        sessionId: String?,
+        context: NSManagedObjectContext
+    ) -> Bool {
+        do {
+            // Fetch recent plays of the same song
+            let fetchRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+            fetchRequest.predicate = NSPredicate(format: "songId == %@", songId)
+            fetchRequest.fetchLimit = 1
+            
+            guard let existingRecord = try context.fetch(fetchRequest).first,
+                  let lastPlayed = existingRecord.lastPlayed else {
+                return false // No existing record, not a duplicate
             }
+            
+            let timeDifference = playDate.timeIntervalSince(lastPlayed)
+            let lastSource = existingRecord.trackingSource ?? "unknown"
+            
+            // Smart deduplication rules
+            switch (source, lastSource) {
+            case ("realtime", "musickit"), ("musickit", "realtime"):
+                // Cross-system: Use stricter timing (2 minutes)
+                return timeDifference < 120
+                
+            case ("realtime", "realtime"):
+                // Same real-time source: 30-second window (but allow quick replays)
+                if timeDifference < 30 {
+                    return !validateQuickReplay(timeDifference: timeDifference)
+                }
+                return false
+                
+            case ("musickit", "musickit"):
+                // Same MusicKit source: 1-minute window
+                return timeDifference < 60
+                
+            default:
+                // Default: 1-minute buffer for unknown combinations
+                return timeDifference < 60
+            }
+            
+        } catch {
+            #if DEBUG
+            print("❌ [DEDUP] Error checking for duplicate: \(error)")
+            #endif
+            return false // Error occurred, allow the play to be recorded
         }
+    }
+    
+    private func validateQuickReplay(timeDifference: TimeInterval) -> Bool {
+        // Allow plays that are 10+ seconds apart as legitimate quick replays
+        // (e.g., user skipped to another song, then immediately back)
+        return timeDifference >= 10
+    }
+    
+    private func getOrCreatePlayCount(
+        songId: String,
+        title: String,
+        artist: String,
+        context: NSManagedObjectContext
+    ) -> PlayCount {
+        do {
+            let fetchRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+            fetchRequest.predicate = NSPredicate(format: "songId == %@", songId)
+            fetchRequest.fetchLimit = 1
+            
+            if let existingRecord = try context.fetch(fetchRequest).first {
+                return existingRecord
+            } else {
+                // Create new record
+                let newRecord = PlayCount(context: context)
+                newRecord.songId = songId
+                newRecord.songTitle = title
+                newRecord.artistName = artist
+                newRecord.playCount = 0 // Will be incremented by caller
+                newRecord.firstTracked = Date()
+                
+                #if DEBUG
+                print("📊 [CORE_DATA] Created new play count record for \"\(title)\"")
+                #endif
+                
+                return newRecord
+            }
+        } catch {
+            #if DEBUG
+            print("❌ [CORE_DATA] Error fetching/creating play count: \(error)")
+            #endif
+            
+            // Fallback: create new record
+            let newRecord = PlayCount(context: context)
+            newRecord.songId = songId
+            newRecord.songTitle = title
+            newRecord.artistName = artist
+            newRecord.playCount = 0
+            newRecord.firstTracked = Date()
+            return newRecord
+        }
+    }
+    
+    // MARK: - Legacy Methods (Deprecated)
+    
+    @available(*, deprecated, message: "Use recordPlayCount with source parameter instead")
+    func recordMusicKitPlay(songId: String, title: String, artist: String, playDate: Date, completion: @escaping () -> Void) {
+        recordPlayCount(songId: songId, title: title, artist: artist, source: "musickit", playDate: playDate)
+        completion()
     }
     
     func getExistingPlayCount(songId: String) -> PlayCount? {
@@ -186,6 +238,32 @@ class CoreDataManager {
         } catch {
             #if DEBUG
             print("❌ [CORE_DATA] Failed to fetch recently played songs: \(error)")
+            #endif
+            return []
+        }
+    }
+    
+    // MARK: - Debug Methods
+    
+    func fetchDebugData() -> [(title: String, artist: String, count: Int32, source: String, lastPlayed: Date?)] {
+        let request: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(key: "lastPlayed", ascending: false)]
+        request.fetchLimit = 100
+        
+        do {
+            let records = try viewContext.fetch(request)
+            return records.map { record in
+                (
+                    title: record.songTitle ?? "Unknown",
+                    artist: record.artistName ?? "Unknown",
+                    count: record.playCount,
+                    source: record.trackingSource ?? "unknown",
+                    lastPlayed: record.lastPlayed
+                )
+            }
+        } catch {
+            #if DEBUG
+            print("❌ [CORE_DATA] Failed to fetch debug data: \(error)")
             #endif
             return []
         }
