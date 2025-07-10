@@ -5,20 +5,21 @@ struct SubscriptionRequiredView: View {
     @State private var isRequestingAuth = false
     
     var body: some View {
-        VStack(spacing: 30) {
+        VStack(spacing: 0) {
             Spacer()
             
             // Header Icon
             Image(systemName: "music.note.list")
                 .font(.system(size: 80))
                 .foregroundColor(.pink)
-                .padding(.bottom, 20)
+                .padding(.bottom, 24)
             
             // Title
             Text("Apple Music Required")
                 .font(.largeTitle)
                 .fontWeight(.bold)
                 .multilineTextAlignment(.center)
+                .padding(.bottom, 16)
             
             // Status Message
             Text(musicKitManager.statusMessage)
@@ -26,25 +27,7 @@ struct SubscriptionRequiredView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
-            
-            // Detailed Requirements
-            VStack(alignment: .leading, spacing: 12) {
-                RequirementRow(
-                    isCompleted: musicKitManager.isAuthorized,
-                    title: "Apple Music Access",
-                    description: "Allow this app to access your Apple Music library"
-                )
-                
-                RequirementRow(
-                    isCompleted: musicKitManager.isSubscribed,
-                    title: "Active Subscription",
-                    description: "An active Apple Music subscription is required"
-                )
-            }
-            .padding(.horizontal, 40)
-            .padding(.top, 30)
-            
-            Spacer()
+                .padding(.bottom, 50)
             
             // Action Buttons
             VStack(spacing: 16) {
@@ -88,17 +71,9 @@ struct SubscriptionRequiredView: View {
                     }
                     .padding(.horizontal, 40)
                 }
-                
-                Button(action: {
-                    checkStatusAgain()
-                }) {
-                    Text("Check Status Again")
-                        .fontWeight(.medium)
-                        .foregroundColor(.pink)
-                }
-                .padding(.horizontal, 40)
             }
-            .padding(.bottom, 50)
+            
+            Spacer()
         }
         .background(Color(.systemGroupedBackground))
         .onAppear {
@@ -111,7 +86,7 @@ struct SubscriptionRequiredView: View {
     private func requestAuthorization() {
         isRequestingAuth = true
         Task {
-            await musicKitManager.requestAuthorization()
+            _ = await musicKitManager.requestAuthorization()
             isRequestingAuth = false
         }
     }
@@ -124,43 +99,8 @@ struct SubscriptionRequiredView: View {
         }
     }
     
-    private func checkStatusAgain() {
-        Task {
-            await musicKitManager.checkAuthorizationAndSubscription()
-        }
-    }
 }
 
-struct RequirementRow: View {
-    let isCompleted: Bool
-    let title: String
-    let description: String
-    
-    var body: some View {
-        HStack(spacing: 16) {
-            // Status Icon
-            Image(systemName: isCompleted ? "checkmark.circle.fill" : "circle")
-                .font(.title2)
-                .foregroundColor(isCompleted ? .green : .secondary)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                
-                Text(description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-        }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 16)
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-    }
-}
 
 #Preview {
     SubscriptionRequiredView()

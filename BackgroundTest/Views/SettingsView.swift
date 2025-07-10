@@ -1,46 +1,13 @@
 import SwiftUI
-import MediaPlayer
 
 struct SettingsView: View {
     @State private var showingResetAlert = false
     @State private var showingResetConfirmation = false
     @State private var isResetting = false
-    @StateObject private var permissionManager = PermissionManager()
     
     var body: some View {
         NavigationView {
             List {
-                // Permission Section
-                Section {
-                    HStack {
-                        Image(systemName: "music.note.list")
-                            .foregroundColor(.blue)
-                            .font(.title2)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Music Library Access")
-                                .font(.headline)
-                            
-                            Text(permissionManager.permissionStatusText)
-                                .font(.subheadline)
-                                .foregroundColor(permissionManager.permissionStatusColor)
-                        }
-                        
-                        Spacer()
-                        
-                        if permissionManager.isPermissionDenied {
-                            Button("Open Settings") {
-                                permissionManager.openSettings()
-                            }
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                } header: {
-                    Text("Permissions")
-                }
-                
                 // Data Management Section
                 Section {
                     Button(action: {
@@ -65,7 +32,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Data Management")
                 } footer: {
-                    Text("This will permanently delete all your music listening statistics and play counts. This action cannot be undone.")
+                    Text("This will permanently delete all your music listening statistics and play counts. This action cannot be undone.\n\nMusic tracking began on \(installDate). Only songs played after this date are included in your statistics.")
                 }
                 
                 // App Information Section
@@ -90,9 +57,6 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.large)
         }
-        .onAppear {
-            permissionManager.checkMusicLibraryPermission()
-        }
         .alert("Reset All Data", isPresented: $showingResetAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Reset", role: .destructive) {
@@ -114,6 +78,17 @@ struct SettingsView: View {
     
     private var buildNumber: String {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
+    }
+    
+    private var installDate: String {
+        let appInstallDateKey = "AppInstallDate"
+        if let installDate = UserDefaults.standard.object(forKey: appInstallDateKey) as? Date {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            return formatter.string(from: installDate)
+        }
+        return "Unknown"
     }
     
     

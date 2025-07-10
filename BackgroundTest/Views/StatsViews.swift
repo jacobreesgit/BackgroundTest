@@ -109,8 +109,6 @@ struct TodayStatsView: View {
                         SongRowView(song: song, rank: index + 1)
                     }
                 }
-            } header: {
-                Text("Top Songs Today")
             }
         }
         .refreshable {
@@ -133,14 +131,12 @@ struct TodayStatsView: View {
     private func loadTodaysSongs() async {
         isLoading = true
         
-        await Task.detached {
-            let songs = CoreDataManager.shared.fetchTodaysSongs()
-            
-            DispatchQueue.main.async {
-                todaysSongs = songs
-                isLoading = false
-            }
+        let songs = await Task.detached {
+            CoreDataManager.shared.fetchTodaysSongs()
         }.value
+        
+        todaysSongs = songs
+        isLoading = false
     }
 }
 
@@ -170,8 +166,6 @@ struct ThisWeekStatsView: View {
                         SongRowView(song: song, rank: index + 1)
                     }
                 }
-            } header: {
-                Text("Top Songs This Week")
             }
         }
         .refreshable {
@@ -194,14 +188,12 @@ struct ThisWeekStatsView: View {
     private func loadWeekSongs() async {
         isLoading = true
         
-        await Task.detached {
-            let songs = CoreDataManager.shared.fetchThisWeeksSongs()
-            
-            DispatchQueue.main.async {
-                weekSongs = songs
-                isLoading = false
-            }
+        let songs = await Task.detached {
+            CoreDataManager.shared.fetchThisWeeksSongs()
         }.value
+        
+        weekSongs = songs
+        isLoading = false
     }
 }
 
@@ -224,15 +216,13 @@ struct RecentlyPlayedView: View {
                     ContentUnavailableView(
                         "No Recently Played Songs",
                         systemImage: "clock.arrow.circlepath",
-                        description: Text("Your recently played songs will appear here.")
+                        description: Text("Your recently played songs will appear here.\n\nMusic tracking began on \(installDate). Only songs played after this date are included in your statistics.")
                     )
                 } else {
                     ForEach(Array(recentSongs.enumerated()), id: \.element.objectID) { index, song in
                         SongRowView(song: song, rank: index + 1)
                     }
                 }
-            } header: {
-                Text("Recently Played")
             }
         }
         .refreshable {
@@ -252,17 +242,26 @@ struct RecentlyPlayedView: View {
         }
     }
     
+    private var installDate: String {
+        let appInstallDateKey = "AppInstallDate"
+        if let installDate = UserDefaults.standard.object(forKey: appInstallDateKey) as? Date {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            return formatter.string(from: installDate)
+        }
+        return "Unknown"
+    }
+    
     private func loadRecentSongs() async {
         isLoading = true
         
-        await Task.detached {
-            let songs = CoreDataManager.shared.fetchRecentlyPlayedSongs()
-            
-            DispatchQueue.main.async {
-                recentSongs = songs
-                isLoading = false
-            }
+        let songs = await Task.detached {
+            CoreDataManager.shared.fetchRecentlyPlayedSongs()
         }.value
+        
+        recentSongs = songs
+        isLoading = false
     }
 }
 
@@ -306,8 +305,6 @@ struct AllTimeStatsView: View {
                     }
                     .padding(.vertical, 8)
                 }
-            } header: {
-                Text("Overall Statistics")
             }
             
             Section {
@@ -330,8 +327,6 @@ struct AllTimeStatsView: View {
                         SongRowView(song: song, rank: index + 1)
                     }
                 }
-            } header: {
-                Text("Most Played Songs")
             }
         }
         .refreshable {
@@ -354,16 +349,15 @@ struct AllTimeStatsView: View {
     private func loadAllTimeStats() async {
         isLoading = true
         
-        await Task.detached {
+        let (songs, stats) = await Task.detached {
             let songs = CoreDataManager.shared.fetchAllTimeSongs()
             let stats = CoreDataManager.shared.fetchTotalStats()
-            
-            DispatchQueue.main.async {
-                allTimeSongs = songs
-                totalStats = stats
-                isLoading = false
-            }
+            return (songs, stats)
         }.value
+        
+        allTimeSongs = songs
+        totalStats = stats
+        isLoading = false
     }
 }
 
