@@ -89,6 +89,78 @@ class CoreDataManager {
         }
     }
     
+    // MARK: - MusicKit Integration
+    
+    func recordMusicKitPlay(songId: String, title: String, artist: String, playDate: Date, completion: @escaping () -> Void) {
+        persistentContainer.performBackgroundTask { context in
+            do {
+                // Check if record already exists
+                let fetchRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+                fetchRequest.predicate = NSPredicate(format: "songId == %@", songId)
+                fetchRequest.fetchLimit = 1
+                
+                let existingRecords = try context.fetch(fetchRequest)
+                let playCountRecord: PlayCount
+                
+                if let existingRecord = existingRecords.first {
+                    // Update existing record
+                    playCountRecord = existingRecord
+                    playCountRecord.playCount += 1
+                    playCountRecord.lastPlayed = playDate
+                    
+                    #if DEBUG
+                    print("📊 [MUSIC_KIT] Updated play count for \"\(title)\" - Count: \(playCountRecord.playCount)")
+                    #endif
+                } else {
+                    // Create new record
+                    playCountRecord = PlayCount(context: context)
+                    playCountRecord.songId = songId
+                    playCountRecord.songTitle = title
+                    playCountRecord.artistName = artist
+                    playCountRecord.playCount = 1
+                    playCountRecord.lastPlayed = playDate
+                    playCountRecord.firstTracked = playDate
+                    
+                    #if DEBUG
+                    print("📊 [MUSIC_KIT] Created new play count record for \"\(title)\"")
+                    #endif
+                }
+                
+                try context.save()
+                
+                // Notify on main queue
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .playCountUpdated, object: nil)
+                    completion()
+                }
+                
+            } catch {
+                #if DEBUG
+                print("❌ [MUSIC_KIT] Failed to record play count: \(error)")
+                #endif
+                DispatchQueue.main.async {
+                    completion()
+                }
+            }
+        }
+    }
+    
+    func getExistingPlayCount(songId: String) -> PlayCount? {
+        let fetchRequest: NSFetchRequest<PlayCount> = PlayCount.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "songId == %@", songId)
+        fetchRequest.fetchLimit = 1
+        
+        do {
+            let results = try viewContext.fetch(fetchRequest)
+            return results.first
+        } catch {
+            #if DEBUG
+            print("❌ [CORE_DATA] Failed to fetch existing play count: \(error)")
+            #endif
+            return nil
+        }
+    }
+    
     // MARK: - Fetch Methods
     
     func fetchTodaysSongs() -> [PlayCount] {

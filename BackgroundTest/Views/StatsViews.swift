@@ -2,21 +2,31 @@ import SwiftUI
 import CoreData
 
 struct MusicStatsView: View {
-    @StateObject private var permissionManager = PermissionManager()
+    @StateObject private var musicKitManager = MusicKitManager.shared
     
     var body: some View {
         Group {
-            if permissionManager.isPermissionGranted {
-                StatsTabView()
+            if musicKitManager.isInitialized {
+                if musicKitManager.canUseApp {
+                    StatsTabView()
+                } else {
+                    SubscriptionRequiredView()
+                }
             } else {
-                PermissionView()
+                // Loading state
+                VStack {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .padding()
+                    Text("Initializing...")
+                        .foregroundColor(.secondary)
+                }
             }
         }
-        .onAppear {
-            permissionManager.checkMusicLibraryPermission()
-        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            permissionManager.checkMusicLibraryPermission()
+            Task {
+                await musicKitManager.checkAuthorizationAndSubscription()
+            }
         }
     }
 }
@@ -104,10 +114,12 @@ struct TodayStatsView: View {
             }
         }
         .refreshable {
+            await MusicKitManager.shared.syncRecentPlays()
             await loadTodaysSongs()
         }
         .onAppear {
             Task {
+                await MusicKitManager.shared.syncRecentPlays()
                 await loadTodaysSongs()
             }
         }
@@ -163,10 +175,12 @@ struct ThisWeekStatsView: View {
             }
         }
         .refreshable {
+            await MusicKitManager.shared.syncRecentPlays()
             await loadWeekSongs()
         }
         .onAppear {
             Task {
+                await MusicKitManager.shared.syncRecentPlays()
                 await loadWeekSongs()
             }
         }
@@ -222,10 +236,12 @@ struct RecentlyPlayedView: View {
             }
         }
         .refreshable {
+            await MusicKitManager.shared.syncRecentPlays()
             await loadRecentSongs()
         }
         .onAppear {
             Task {
+                await MusicKitManager.shared.syncRecentPlays()
                 await loadRecentSongs()
             }
         }
@@ -319,10 +335,12 @@ struct AllTimeStatsView: View {
             }
         }
         .refreshable {
+            await MusicKitManager.shared.syncRecentPlays()
             await loadAllTimeStats()
         }
         .onAppear {
             Task {
+                await MusicKitManager.shared.syncRecentPlays()
                 await loadAllTimeStats()
             }
         }

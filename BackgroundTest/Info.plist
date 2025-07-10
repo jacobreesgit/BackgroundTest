@@ -13,7 +13,7 @@
 		<string>com.backgroundtest.monitor</string>
 	</array>
 	<key>NSAppleMusicUsageDescription</key>
-	<string>This app tracks your music listening habits to show personalized statistics and insights.</string>
+	<string>This app uses Apple Music to track your listening habits and provide personalized statistics and insights about your music preferences.</string>
 	<key>CFBundleIdentifier</key>
 	<string></string>
 </dict>
